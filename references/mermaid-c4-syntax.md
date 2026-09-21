@@ -225,20 +225,20 @@ relies on `scripts/fit_labels.py` for the collisions that remain. `render_c4.py`
 applies the config by default (`--no-config` disables it, `--config` overrides it)
 and records it in `manifest.json`.
 
-### Layering fixes applied at render time
+### Layering fix applied at render time
 
-Two rendering problems cannot be fixed from Mermaid source, so `render_c4.py`
-rewrites the SVG before rasterizing it:
+Mermaid emits one group holding both the relationship paths and their labels, and
+paints it after the node groups, so line stubs and arrow heads end up on top of
+element boxes and boundary captions. `render_c4.py` rewrites the SVG before
+rasterizing it: the group is split, connectors are painted first (so boxes hide
+them), and the labels stay last. The step is recorded in `manifest.json`.
 
-1. **Connector lines drawn over boxes and captions.** Mermaid emits one group
-   holding both the relationship paths and their labels, and paints it after the
-   node groups, so line stubs and arrow heads end up on top of element boxes.
-   The renderer splits that group: connectors are painted first (hidden by the
-   boxes they run into), labels last.
-2. **Lines crossing text.** `paint-order: stroke` halos are ignored by mermaidx's
-   rasterizer, so the renderer injects a white plate rectangle behind every
-   relationship label and boundary caption. The plate hides the line where it
-   crosses the text without touching element boxes (their text stays on the
-   coloured fill).
+Two tempting fixes do not work and should not be reintroduced:
 
-Both steps are recorded in `manifest.json`; `--no-css` skips the layering step.
+- `paint-order: stroke` text halos - mermaidx does not inject user CSS into C4
+  diagrams, and resvg ignores the attribute when it is written into the SVG
+  directly (verified by measuring pixels: no change at all).
+- Opaque white rectangles behind labels - they hide the connector line, but they
+  also cover neighbouring text whenever a label sits close to another run, which
+  is far worse than a line crossing a label. Keep the source-side fix instead:
+  shorten labels, or move them with `UpdateRelStyle` offsets.

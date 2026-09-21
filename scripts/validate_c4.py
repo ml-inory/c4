@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 NATIVE_HEADERS = {"C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment"}
-FALLBACK_HEADERS = {"flowchart", "graph", "classDiagram"}
+FALLBACK_HEADERS = {"flowchart", "graph", "classDiagram", "sequenceDiagram"}
 
 ELEMENT_TYPES = {
     "Person",
@@ -75,6 +75,7 @@ ENTITY_RE = re.compile(r"&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9A-Fa-f]+);")
 CALL_RE = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\((?P<args>.*)$")
 TITLE_RE = re.compile(r"^\s*title\s*(?P<text>.*)$")
 TITLE_COMMENT_RE = re.compile(r"^\s*%%\s*title\s*:\s*(?P<text>.+?)\s*$")
+ALLOW_ORPHAN_RE = re.compile(r"^\s*%%\s*allow-orphan\s*:\s*(?P<aliases>.+?)\s*$")
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = SKILL_ROOT / "assets" / "mermaid-config.json"
 
@@ -191,12 +192,18 @@ class Validator:
         self.relations: List[Tuple[str, str, int]] = []
         self.header: Optional[str] = None
         self.uses_native_c4 = False
+        self.allowed_orphans = set()
 
     def add(self, line: int, severity: str, message: str) -> None:
         self.issues.append(Issue(self.path, line, severity, message))
 
     def scan_ascii(self) -> None:
         for number, raw in enumerate(self.lines, start=1):
+            allowed = ALLOW_ORPHAN_RE.match(raw)
+            if allowed:
+                self.allowed_orphans.update(
+                    alias.strip() for alias in allowed.group("aliases").split(",") if alias.strip()
+                )
             for ch in raw:
                 if ord(ch) > 127:
                     self.add(
@@ -389,7 +396,7 @@ class Validator:
             for alias in set(self.elements) - connected
             if self.elements[alias]["kind"] not in grouping
         ]
-        for alias in sorted(orphans):
+        for alias in sorted(set(orphans) - self.allowed_orphans):
             self.add(
                 int(self.elements[alias]["line"]),
                 "warning",

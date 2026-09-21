@@ -25,13 +25,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 FALLBACK_INDEX = "https://pypi.org/simple"
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = SKILL_ROOT / "assets" / "mermaid-config.json"
-DEFAULT_CSS = SKILL_ROOT / "assets" / "mermaid-halo.css"
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
 NS = "{{{}}}".format(SVG_NS)
 
 
-def reorder_connectors(svg_text: str, measure=None, halo: bool = True) -> str:
+def reorder_connectors(svg_text: str) -> str:
     """Paint relationship lines behind the element boxes and labels in front.
 
     Mermaid emits one group holding both the connector paths and the relationship
@@ -71,86 +70,8 @@ def reorder_connectors(svg_text: str, measure=None, halo: bool = True) -> str:
     root.insert(0, connector_group)
     root.append(label_group)
 
-    if halo:
-        # resvg ignores paint-order strokes on text, so masking is done with real
-        # rectangles: a white plate is painted directly under every relationship
-        # label and boundary caption, hiding the connector lines that would
-        # otherwise run through them. Element boxes keep their coloured fill, so
-        # their own text is left untouched.
-        for element in list(label_group):
-            plate = label_plate(element, measure)
-            if plate is not None:
-                label_group.insert(list(label_group).index(element), plate)
-        for group in root:
-            if group is label_group or group.tag != NS + "g":
-                continue
-            if not is_unfilled_group(group):
-                continue
-            for element in list(group):
-                plate = label_plate(element, measure)
-                if plate is not None:
-                    group.insert(list(group).index(element), plate)
     body = ET.tostring(root, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + body
-
-
-def label_plate(element, measure=None) -> Optional[ET.Element]:
-    """White background rectangle for one relationship label run."""
-    if element.tag != NS + "text":
-        return None
-    content = "".join(element.itertext()).strip()
-    x = element.get("x")
-    y = element.get("y")
-    if not content or x is None or y is None:
-        return None
-    size = 12.0
-    match = re.search(r"font-size:\s*([\d.]+)", element.get("style") or "")
-    if match:
-        size = float(match.group(1))
-    if measure is not None:
-        width = measure(content, size)
-    else:
-        width = len(content) * size * 0.55
-    anchor = "start"
-    anchor_match = re.search(r"text-anchor:\s*(\w+)", element.get("style") or "")
-    if anchor_match:
-        anchor = anchor_match.group(1)
-    center = float(x)
-    if anchor == "middle":
-        left = center - width / 2
-    elif anchor == "end":
-        left = center - width
-    else:
-        left = center
-    baseline = float(y)
-    plate = ET.Element(
-        NS + "rect",
-        {
-            "x": "{:.1f}".format(left - 3),
-            "y": "{:.1f}".format(baseline - size * 0.85),
-            "width": "{:.1f}".format(width + 6),
-            "height": "{:.1f}".format(size * 1.15),
-            "fill": "#ffffff",
-            "class": "label-plate",
-        },
-    )
-    return plate
-
-
-def is_unfilled_group(group) -> bool:
-    """True for caption groups (boundaries) whose shapes are not filled boxes."""
-    shapes = [
-        element
-        for element in group
-        if element.tag in (NS + "rect", NS + "path", NS + "polygon", NS + "circle")
-    ]
-    if not shapes or not any(element.tag == NS + "text" for element in group):
-        return False
-    for shape in shapes:
-        fill = (shape.get("fill") or "none").strip().lower()
-        if fill not in ("none", "transparent", "#ffffff", "white"):
-            return False
-    return True
 
 
 def log(message: str) -> None:
@@ -223,15 +144,7 @@ def render_one(
     if css:
         opts["css"] = css
     diagram = mermaidx.render(text, backend=args.backend, **opts)
-    def measure(content: str, size: float) -> float:
-        try:
-            font = mermaidx.font_metrics.get_font()
-            units = sum(font.advance_width_units(ch) for ch in content)
-            return units / font.units_per_em * size
-        except Exception:
-            return len(content) * size * 0.55
-
-    svg = reorder_connectors(diagram.svg(), measure=measure)
+    svg = reorder_connectors(diagram.svg())
     png_kwargs: Dict[str, object] = {"background": args.background}
     viewbox_width = 0.0
     if args.width or args.height:
@@ -271,10 +184,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--no-config", action="store_true", help="ignore the default mermaid config")
     parser.add_argument(
         "--css",
-        default=str(DEFAULT_CSS),
-        help="CSS injected into the diagram (default: skill assets/mermaid-halo.css)",
+        default=None,
+        help="optional CSS file injected through mermaidx (ignored by C4 diagrams)",
     )
-    parser.add_argument("--no-css", action="store_true", help="do not inject any CSS")
     parser.add_argument("--force", action="store_true", help="re-render unchanged sources")
     parser.add_argument("--check-only", action="store_true", help="render in memory, write nothing")
     args = parser.parse_args(argv)
@@ -319,7 +231,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     css = ""
     css_label = "none"
-    if not args.no_css:
+    if args.css:
         css_path = Path(args.css)
         if css_path.is_file():
             css = css_path.read_text(encoding="utf-8")

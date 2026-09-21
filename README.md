@@ -17,6 +17,7 @@ ln -sfn "$PWD" "${CODEX_HOME:-$HOME/.codex}/skills/c4"
 python3 <skill-dir>/scripts/validate_c4.py docs/c4/diagrams
 python3 <skill-dir>/scripts/render_c4.py --src docs/c4/diagrams
 python3 <skill-dir>/scripts/check_layout.py docs/c4/svg
+python3 <skill-dir>/scripts/fit_labels.py docs/c4/diagrams --apply   # only when check_layout reports collisions
 ```
 
 Or ask Codex: `Use $c4 to document this repository's architecture.`

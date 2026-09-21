@@ -11,6 +11,7 @@ abstractions, same colours, same labels) while giving full control over layout.
 - [C4 colour palette](#c4-colour-palette)
 - [Templates](#templates)
 - [L4 code diagrams](#l4-code-diagrams)
+- [Dynamic views: use a sequence diagram](#dynamic-views-use-a-sequence-diagram)
 
 ## When to use a fallback
 
@@ -165,3 +166,35 @@ classDiagram
 
 Keep code diagrams scoped to one component, show only the types needed for the
 story, and note in the document that they are illustrative rather than exhaustive.
+
+## Dynamic views: use a sequence diagram
+
+`C4Dynamic` inherits the C4 layout engine, which is built for static boxes: a
+numbered flow turns into crossing arrows with labels pushed away from their lines.
+Render dynamic views as a Mermaid `sequenceDiagram` instead - it is the same C4
+dynamic view (ordered interactions between containers), rendered in order.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Personal Banking Customer
+    participant S as Storefront SPA
+    participant A as API Application
+    participant P as Stripe
+    participant D as Shopstream Database
+    participant Q as Order Queue
+    participant W as Order Worker
+    participant M as SendGrid
+    C->>S: Submits the checkout form
+    S->>A: Posts order and payment request<br/>(HTTPS/JSON)
+    A->>P: Creates a payment intent<br/>(HTTPS/REST)
+    P-->>A: Confirms the captured payment<br/>(Webhook/JSON)
+    A->>D: Stores the paid order<br/>(SQL/TCP)
+    A->>Q: Publishes the order.paid event<br/>(Redis protocol)
+    W->>Q: Pops the order.paid event<br/>(Redis protocol)
+    W->>M: Sends the confirmation e-mail<br/>(HTTPS/REST)
+```
+
+Use `->>` for requests, `-->>` for responses, `alt` blocks for failure paths, and
+`Note over` for state changes. Keep the same participant names and technologies as
+the container diagram so the two views line up.

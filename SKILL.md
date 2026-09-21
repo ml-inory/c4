@@ -20,7 +20,7 @@ Work through these steps in order.
 3. **Gather elements with evidence.** In codebase mode, collect aliases, names, technologies, descriptions, and the file/config each element came from.
 4. **Author one `.mmd` file per diagram** under `docs/c4/diagrams/` in the target project.
 5. **Validate:** `python3 <skill-dir>/scripts/validate_c4.py docs/c4/diagrams`.
-6. **Render:** `python3 <skill-dir>/scripts/render_c4.py --src docs/c4/diagrams`. The script installs `mermaidx` if it is missing, applies the C4 layout config, restructures the SVG so connector lines cannot cover text, and writes `png/`, `svg/`, and `manifest.json`.
+6. **Render:** `python3 <skill-dir>/scripts/render_c4.py --src docs/c4/diagrams`. The script installs `mermaidx` if it is missing, applies the C4 layout config, restructures the SVG so connector lines are painted behind the boxes, and writes `png/`, `svg/`, and `manifest.json`.
 7. **Check the layout:** `python3 <skill-dir>/scripts/check_layout.py docs/c4/svg`. Mermaid's C4 layout puts relationship labels on the edge path, so labels can land on boxes or be clipped. If it reports problems, run `python3 <skill-dir>/scripts/fit_labels.py docs/c4/diagrams --apply` and render again; repeat until it is clean.
 8. **Write `docs/c4/README.md`** from [assets/c4-doc-template.md](assets/c4-doc-template.md), embedding the rendered PNGs and linking the sources.
 9. **Report** the files produced, the assumptions and open questions, and which review checklist items still need a human decision.
@@ -36,7 +36,7 @@ Work through these steps in order.
 | L3 Component | Only when the code shows cohesive internal parts of one container (packages/modules/classes with distinct responsibilities) and that container matters to the story. Produce one component diagram per container. |
 | L4 Code | Only on explicit request or when one component's implementation is the subject. Use a Mermaid `classDiagram`, not C4 syntax. |
 | System Landscape | When the system in scope is one of several systems or team boundaries matter. |
-| Dynamic | When a runtime flow (sign-in, order, ingestion) must be explained as an ordered interaction. |
+| Dynamic | When a runtime flow (sign-in, order, ingestion) must be explained as an ordered interaction. Draw it with a Mermaid `sequenceDiagram` (`autonumber`) rather than `C4Dynamic`: the C4 layout engine produces crossing arrows and drifts labels far from their lines. |
 | Deployment | When real deployment topology is readable from IaC/config (compose, k8s, Terraform, systemd). |
 
 c4model.com states that not every level is required; system context and container diagrams are enough for most teams. Prefer three clear diagrams over seven padded ones.
@@ -63,6 +63,53 @@ Keep evidence out of the diagrams and record it in the Evidence table of `docs/c
 - Give every element a short description and every relationship a verb plus technology where known (`Reads/writes`, `JDBC`).
 - Keep each diagram between roughly 3 and 15 concrete elements; split anything larger into a second diagram or a lower level.
 - Connect every element to at least one other element; an unconnected box is a defect.
+  Deployment nodes and infrastructure leaves may be exempted with a
+  `%% allow-orphan: <alias>` comment when they exist only to show topology.
+
+## Clean-diagram rules
+
+These rules come from measuring rendered output; follow them before reaching for
+layout tweaks.
+
+1. **One story per diagram.** 3-15 concrete elements, at most ~10 relationships.
+   Beyond that, labels have nowhere to go and lines cross.
+2. **Keep the canvas compact.** Use `assets/mermaid-config.json` (`c4ShapeMargin`
+   50). Inflating margins to avoid collisions makes the diagram several times
+   taller, and text looks tiny whenever the image is scaled to fit - fix
+   collisions with label offsets instead.
+3. **Pick the view type that fits the content.** Static structure uses native C4
+   syntax; ordered flows use `sequenceDiagram` (`autonumber`); code uses
+   `classDiagram`. `C4Dynamic` produces crossing arrows with labels far from their
+   lines - do not use it.
+4. **Deployment diagrams show placement, not routing.** Do not put an actor in a
+   deployment diagram (its long relationship line crosses boundary captions), and
+   avoid relationships between two elements the layout puts in the same row - a
+   label cannot fit in the ~50px gap between neighbours. Relate across rows or
+   nodes instead.
+5. **Keep labels short.** Aim for under ~30 characters plus the technology tag;
+   long labels force large offsets and start colliding with neighbouring text.
+6. **Never paint opaque shapes over text.** White label "plates" and text halos
+   look like blocks covering words and cannot be verified reliably. Move the label
+   instead.
+7. **Keep labels attached to their lines.** `fit_labels.py` refuses moves beyond
+   120px for this reason; if a label cannot be placed within that budget, the
+   diagram is too dense - split it, shorten the label, or drop the relationship.
+8. **Export at scale 2.** Text lands at 24-32px in the PNG; `--width` overrides the
+   scale and is only for diagrams viewed fit-to-width.
+
+### Verification loop
+
+```bash
+python3 <skill-dir>/scripts/validate_c4.py docs/c4/diagrams      # source lint + render smoke test
+python3 <skill-dir>/scripts/render_c4.py --src docs/c4/diagrams  # PNG + SVG + manifest
+python3 <skill-dir>/scripts/check_layout.py docs/c4/svg          # overlap, clipping, box overflow
+python3 <skill-dir>/scripts/fit_labels.py docs/c4/diagrams --apply   # move colliding labels
+python3 <skill-dir>/scripts/render_c4.py --src docs/c4/diagrams  # re-render
+```
+
+Repeat the last three steps until `check_layout.py` is silent. A diagram is only
+finished when the geometry check passes *and* a visual pass confirms no text is
+covered, overlapped, or clipped; geometry alone does not catch every defect.
 
 ## Minimal example
 

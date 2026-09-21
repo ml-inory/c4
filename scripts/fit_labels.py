@@ -31,6 +31,13 @@ NS = "{http://www.w3.org/2000/svg}"
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = SKILL_ROOT / "assets" / "mermaid-config.json"
 MARGIN = 6.0
+MAX_SHIFT = 160.0
+# Total displacement budget per label: a label that has to travel further than this
+# is no longer visually attached to its own connector line.
+MAX_TOTAL_SHIFT = 120.0
+# Labels must keep clear of every obstacle, not merely avoid overlapping it:
+# "touching the border" and "abutting a description" read as defects too.
+CLEARANCE = 6.0
 
 
 def load_config(path: Path) -> Dict[str, object]:
@@ -115,8 +122,8 @@ def penalty(box, boxes, others, viewbox) -> float:
     x0, y0, x1, y1 = box
     total = 0.0
     for bx0, by0, bx1, by1 in boxes:
-        ix = min(x1, bx1) - max(x0, bx0)
-        iy = min(y1, by1) - max(y0, by0)
+        ix = min(x1, bx1 + CLEARANCE) - max(x0, bx0 - CLEARANCE)
+        iy = min(y1, by1 + CLEARANCE) - max(y0, by0 - CLEARANCE)
         if ix > 0 and iy > 0:
             total += (ix + iy) * 3
     for ox0, oy0, ox1, oy1 in others.values():
@@ -133,6 +140,13 @@ def penalty(box, boxes, others, viewbox) -> float:
     return total
 
 
+def proximity(box, anchor, weight: float = 0.6) -> float:
+    """Distance from the label's natural position: labels must stay near their line."""
+    dy = abs(box[1] - anchor[1])
+    dx = abs((box[0] + box[2]) / 2 - (anchor[0] + anchor[2]) / 2)
+    return (dy + 0.25 * dx) * weight
+
+
 def inside(box, viewbox) -> bool:
     x0, y0, x1, y1 = box
     vx0, vy0, vx1, vy1 = viewbox
@@ -147,37 +161,46 @@ def total_penalty(labels, obstacles, viewbox, skip=None) -> float:
     )
 
 
-def solve(relations, boxes, labels, viewbox, step: float = 20.0, reach: float = 800.0):
+def solve(relations, boxes, labels, viewbox, anchors=None, step: float = 20.0):
     """Bounded search: move each label to the best in-canvas position."""
     offsets: Dict[Tuple[str, str], List[float]] = {}
     for alias_a, alias_b, _, _, existing in relations:
         offsets[(str(alias_a), str(alias_b))] = list(existing) if existing else [0.0, 0.0]
     current = dict(labels)
+    anchors = anchors or dict(labels)
     for _ in range(6):
         improved = False
         order = sorted(
             current,
-            key=lambda key: -penalty(
-                current[key], boxes, {k: v for k, v in current.items() if k != key}, viewbox
+            key=lambda key: -(
+                penalty(current[key], boxes, {k: v for k, v in current.items() if k != key}, viewbox)
+                + proximity(current[key], anchors[key])
             ),
         )
         for key in order:
             others = {k: v for k, v in current.items() if k != key}
-            base = penalty(current[key], boxes, others, viewbox)
+            base = penalty(current[key], boxes, others, viewbox) + proximity(current[key], anchors[key])
             if base <= 0:
                 continue
             x0, y0, x1, y1 = current[key]
             best = None
-            delta = -reach
-            while delta <= reach:
-                candidate = (x0, y0 + delta, x1, y1 + delta)
-                if inside(candidate, viewbox):
-                    value = penalty(candidate, boxes, others, viewbox)
+            for shift_x in range(int(-MAX_SHIFT), int(MAX_SHIFT) + 1, int(step)):
+                for shift_y in range(int(-MAX_SHIFT), int(MAX_SHIFT) + 1, int(step)):
+                    candidate = (x0 + shift_x, y0 + shift_y, x1 + shift_x, y1 + shift_y)
+                    if not inside(candidate, viewbox):
+                        continue
+                    total_x = offsets[key][0] + shift_x
+                    total_y = offsets[key][1] + shift_y
+                    if abs(total_x) > MAX_TOTAL_SHIFT or abs(total_y) > MAX_TOTAL_SHIFT:
+                        continue
+                    value = penalty(candidate, boxes, others, viewbox) + proximity(candidate, anchors[key])
                     if best is None or value < best[0]:
-                        best = (value, delta, candidate)
-                delta += step
-            if best is not None and best[0] < base:
-                offsets[key][1] += best[1]
+                        best = (value, (shift_x, shift_y), candidate)
+            # Only accept a move that removes the collision, not one that merely
+            # trades it for a smaller one: labels must not drift away from their line.
+            if best is not None and best[0] < base and penalty(best[2], boxes, others, viewbox) <= 0:
+                offsets[key][0] += best[1][0]
+                offsets[key][1] += best[1][1]
                 current[key] = best[2]
                 improved = True
         if not improved:
@@ -212,6 +235,7 @@ def process(path: Path, mermaidx, config, font, apply: bool) -> int:
         text_obstacles = [
             (run.x0, run.y0, run.x1, run.y1) for run in runs if id(run) not in label_run_ids
         ]
+        anchors = dict(labels)
         obstacles = boxes + text_obstacles
         dirty = {
             key: penalty(box, obstacles, {k: v for k, v in labels.items() if k != key}, viewbox)
@@ -237,7 +261,7 @@ def process(path: Path, mermaidx, config, font, apply: bool) -> int:
             if apply:
                 path.write_text(source, encoding="utf-8")
             return 0
-        offsets = solve(relations, obstacles, labels, viewbox)
+        offsets = solve(relations, obstacles, labels, viewbox, anchors=anchors)
         updated = rewrite(source, offsets)
         if updated == source:
             print("{}: {} label(s) still colliding, needs manual offsets: {}".format(path, len(dirty), sorted(dirty)))
