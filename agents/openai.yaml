@@ -1,0 +1,4 @@
+interface:
+  display_name: "C4 Model Architecture Diagrams"
+  short_description: "Document software architecture with C4 diagrams"
+  default_prompt: "Use $c4 to document this repository's architecture with C4 diagrams and PNG exports."

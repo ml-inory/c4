@@ -1,0 +1,13 @@
+{
+  "c4": {
+    "c4ShapeMargin": 50,
+    "c4ShapePadding": 20,
+    "c4ShapeInRow": 3,
+    "c4BoundaryInRow": 1,
+    "diagramMarginX": 40,
+    "diagramMarginY": 15,
+    "wrap": true,
+    "wrapPadding": 10,
+    "messageFontSize": 12
+  }
+}

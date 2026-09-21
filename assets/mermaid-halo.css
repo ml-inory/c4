@@ -1,0 +1,20 @@
+/* Mask connector lines that run behind diagram text.
+ *
+ * Mermaid draws relationship lines from box edge to box edge, and those lines can
+ * pass behind element descriptions and boundary titles. A white stroke painted
+ * before the glyph fill (paint-order: stroke) gives every text run a halo, so the
+ * line is hidden exactly where it would cross the text.
+ */
+text {
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* Inside coloured boxes the halo is barely visible but keeps text crisp against
+ * arrow heads that terminate on the box border. */
+.person-man text {
+  stroke-width: 2px;
+}
