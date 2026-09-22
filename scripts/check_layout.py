@@ -44,6 +44,27 @@ def number(raw: Optional[str]) -> Optional[float]:
     return float(match.group(1)) if match else None
 
 
+def length(raw: Optional[str], size: float) -> Optional[float]:
+    """Parse an SVG length, resolving the relative units Mermaid emits.
+
+    Flowchart, class and state diagrams position text with `y="-0.1em"` and
+    `dy="1.1em"`; reading those as plain numbers collapses every row of a class
+    box or a note onto one baseline and reports the whole diagram as overlapping.
+    """
+    if raw is None:
+        return None
+    match = re.match(r"\s*(-?[\d.]+)\s*([a-zA-Z%]*)", raw)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "em":
+        value *= size
+    elif unit == "ex":
+        value *= size * 0.5
+    return value
+
+
 def parse_translate(node) -> Tuple[float, float]:
     dx = dy = 0.0
     for part in re.findall(r"translate\(([^)]*)\)", node.get("transform") or ""):
@@ -55,7 +76,9 @@ def parse_translate(node) -> Tuple[float, float]:
 
 
 class Run:
-    def __init__(self, text: str, x0: float, x1: float, baseline: float, size: float) -> None:
+    def __init__(
+        self, text: str, x0: float, x1: float, baseline: float, size: float, estimated: bool = False
+    ) -> None:
         self.text = text
         self.x0 = x0
         self.x1 = x1
@@ -63,6 +86,10 @@ class Run:
         self.y0 = baseline - size * 0.8
         self.y1 = baseline + size * 0.25
         self.size = size
+        # True when the width came from bundled font metrics rather than the
+        # renderer's own textLength: the renderer laid the text out with a
+        # different font, so a couple of pixels of overhang is measurement noise.
+        self.estimated = estimated
 
     def as_dict(self) -> Dict[str, object]:
         return {
@@ -97,27 +124,48 @@ def text_runs(
     size = number(style_value(node, "font-size")) or number(node.get("font-size")) or size
     anchor = style_value(node, "text-anchor") or node.get("text-anchor") or anchor
     tag = node.tag.replace(NS, "")
-    x = number(node.get("x"))
-    y = number(node.get("y"))
+    x = length(node.get("x"), size)
+    y = length(node.get("y"), size)
     if x is None:
         x = inherited_x
     if y is None:
         y = inherited_y
-    dy_attr = number(node.get("dy"))
+    dy_attr = length(node.get("dy"), size)
     if tag == "tspan" and dy_attr is not None and y is not None:
         y = y + dy_attr
-    has_text_child = any(
-        child.tag.replace(NS, "") == "tspan" and "".join(child.itertext()).strip() for child in node
-    )
-    if tag in ("text", "tspan") and not has_text_child:
+    # Mermaid splits a label two ways:
+    #   * wrapped lines: one positioned tspan per line (C4 diagrams), so each line
+    #     is its own run, and
+    #   * inline runs: one positioned tspan holding several unpositioned tspans that
+    #     flow horizontally (flowchart, class and state diagrams), which is ONE run.
+    # Reading the inline case per tspan puts every word of a label at the same x.
+    spans = [child for child in node if child.tag.replace(NS, "") == "tspan"]
+    positioned = [
+        child
+        for child in spans
+        if child.get("x") is not None or (length(child.get("dy"), size) or 0.0) != 0.0
+    ]
+    if tag in ("text", "tspan") and spans and not positioned:
         content = "".join(node.itertext()).strip()
         if content and x is not None and y is not None:
             width = number(node.get("textLength"))
+            measured = width is not None
             if width is None:
                 units = sum(font.advance_width_units(ch) for ch in content)
                 width = units / font.units_per_em * size
             x0 = x - width / 2 if anchor == "middle" else x - width if anchor == "end" else x
-            out.append(Run(content, ox + x0, ox + x0 + width, oy + y, size))
+            out.append(Run(content, ox + x0, ox + x0 + width, oy + y, size, estimated=not measured))
+        return
+    if tag in ("text", "tspan") and not spans:
+        content = "".join(node.itertext()).strip()
+        if content and x is not None and y is not None:
+            width = number(node.get("textLength"))
+            measured = width is not None
+            if width is None:
+                units = sum(font.advance_width_units(ch) for ch in content)
+                width = units / font.units_per_em * size
+            x0 = x - width / 2 if anchor == "middle" else x - width if anchor == "end" else x
+            out.append(Run(content, ox + x0, ox + x0 + width, oy + y, size, estimated=not measured))
     for child in node:
         if child.tag.replace(NS, "") != "g":
             text_runs(child, font, ox, oy, size, anchor, out, x, y)
@@ -212,11 +260,16 @@ class Checker:
             vx0, vy0 = viewbox[0], viewbox[1]
             vx1, vy1 = vx0 + viewbox[2], vy0 + viewbox[3]
             for run in runs:
+                # Widths the renderer did not measure itself are approximate, so
+                # allow proportional slack before calling a run clipped.
+                tolerance = (
+                    max(self.tolerance, 0.06 * (run.x1 - run.x0)) if run.estimated else self.tolerance
+                )
                 if (
-                    run.x0 < vx0 - self.tolerance
-                    or run.x1 > vx1 + self.tolerance
-                    or run.y0 < vy0 - self.tolerance
-                    or run.y1 > vy1 + self.tolerance
+                    run.x0 < vx0 - tolerance
+                    or run.x1 > vx1 + tolerance
+                    or run.y0 < vy0 - tolerance
+                    or run.y1 > vy1 + tolerance
                 ):
                     self.add("clipped", run, {"viewbox": [vx0, vy0, vx1, vy1]})
         return {"file": label, "text_runs": len(runs)}

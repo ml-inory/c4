@@ -21,7 +21,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 NATIVE_HEADERS = {"C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment"}
-FALLBACK_HEADERS = {"flowchart", "graph", "classDiagram", "sequenceDiagram"}
+FALLBACK_HEADERS = {
+    "flowchart",
+    "graph",
+    "classDiagram",
+    "sequenceDiagram",
+    "stateDiagram",
+    "stateDiagram-v2",
+}
 
 ELEMENT_TYPES = {
     "Person",
@@ -75,6 +82,7 @@ ENTITY_RE = re.compile(r"&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9A-Fa-f]+);")
 CALL_RE = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\((?P<args>.*)$")
 TITLE_RE = re.compile(r"^\s*title\s*(?P<text>.*)$")
 TITLE_COMMENT_RE = re.compile(r"^\s*%%\s*title\s*:\s*(?P<text>.+?)\s*$")
+FRONT_MATTER_TITLE_RE = re.compile(r"^\s*title\s*:\s*(?P<text>.+?)\s*$")
 ALLOW_ORPHAN_RE = re.compile(r"^\s*%%\s*allow-orphan\s*:\s*(?P<aliases>.+?)\s*$")
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = SKILL_ROOT / "assets" / "mermaid-config.json"
@@ -215,8 +223,16 @@ class Validator:
                     break
 
     def scan_header(self) -> None:
+        # A leading YAML front matter block (used for the rendered title of
+        # fallback diagrams) is not the diagram header.
+        in_front_matter = False
         for number, raw in enumerate(self.lines, start=1):
             stripped = strip_comment(raw).strip()
+            if stripped == "---":
+                in_front_matter = not in_front_matter
+                continue
+            if in_front_matter:
+                continue
             if not stripped:
                 continue
             token = re.split(r"[\s;]", stripped, maxsplit=1)[0]
@@ -406,6 +422,25 @@ class Validator:
 
     def scan_fallback(self) -> None:
         title_ok = False
+        # Front matter ("--- / title: ... / ---") is the form that also renders a
+        # caption above the diagram, so accept it as well as the %% title: comment.
+        in_front_matter = False
+        for number, raw in enumerate(self.lines, start=1):
+            if raw.strip() == "---":
+                in_front_matter = not in_front_matter
+                continue
+            if in_front_matter:
+                front = FRONT_MATTER_TITLE_RE.match(raw)
+                if front:
+                    title_ok = True
+                    if ENTITY_RE.search(front.group("text")):
+                        self.add(
+                            number,
+                            "error",
+                            "HTML entity in the title: spell it out in plain text",
+                        )
+            if not in_front_matter and number > 1:
+                break
         for number, raw in enumerate(self.lines, start=1):
             match = TITLE_COMMENT_RE.match(raw)
             if match:
@@ -420,8 +455,8 @@ class Validator:
             self.add(
                 1,
                 "error",
-                "fallback diagrams need a '%% title: <diagram name>' comment as the "
-                "first line",
+                "fallback diagrams need a title: a '---\\ntitle: <name>\\n---' front "
+                "matter block (shown in the render) or a '%% title: <name>' comment",
             )
 
     def run(self) -> List[Issue]:

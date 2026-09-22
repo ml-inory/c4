@@ -22,6 +22,14 @@ diagrams are regenerated with `python3 <skill-dir>/scripts/render_c4.py --src do
 | System context (L1) | <audience and question answered> | [diagrams/01-system-context.mmd](diagrams/01-system-context.mmd) | [PNG](png/01-system-context.png) / [SVG](svg/01-system-context.svg) |
 | Container (L2) | <audience and question answered> | [diagrams/02-container.mmd](diagrams/02-container.mmd) | [PNG](png/02-container.png) / [SVG](svg/02-container.svg) |
 
+<!--
+Add a row per diagram that exists, and only those. The on-demand views (04-code-<subject>,
+05-dynamic-<flow>, 07-state-<subject>, 08-flow-<flow>, 10-object-<subject>) belong in this
+table too - and in the narrative below - only when this project actually needed them; mark
+each one "experimental" or "on demand" while its view type is still being evaluated. The
+structure views always come first in the reading order.
+-->
+
 ## Diagram review record
 
 <!--

@@ -40,6 +40,8 @@ are silent and the render has been looked at.
 
 Or ask Codex: `Use $c4 to document this repository's architecture.`
 See [SKILL.md](SKILL.md) for the workflow and [references/c4-model.md](references/c4-model.md)
-for the model itself.
+for the model itself. When the project needs views C4 does not define - call ordering,
+object methods, lifecycles, cross-boundary flows - the on-demand templates live in
+[references/interaction-views.md](references/interaction-views.md).
 
 Licensed under the MIT License; the C4 model is by Simon Brown (c4model.com).

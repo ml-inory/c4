@@ -180,20 +180,36 @@ verdict:   accepted | rejected: <reason> | deferred: <reason>
 12. **Report** the files produced, the assumptions and open questions, which diagrams were
     rejected and why, and which review checklist items still need a human decision.
 
-## Level selection
+## View selection
+
+Structure views use the C4 model:
 
 | View | When to produce it |
 | --- | --- |
 | L1 System Context | Always. One diagram for the system in scope, its users, and the external systems it depends on. |
 | L2 Container | Always. The deployable/runnable units inside the system, plus technology choices. |
 | L3 Component | Only when the code shows cohesive internal parts of one container (packages/modules/classes with distinct responsibilities) and that container matters to the story. Produce one component diagram per container. |
-| L4 Code | Only on explicit request or when one component's implementation is the subject. Use a Mermaid `classDiagram`, not C4 syntax. |
 | System Landscape | When the system in scope is one of several systems or team boundaries matter. |
-| Dynamic | When a runtime flow (sign-in, order, ingestion) must be explained as an ordered interaction. Draw it with a Mermaid `sequenceDiagram` (`autonumber`) rather than `C4Dynamic`: the C4 layout engine produces crossing arrows and drifts labels far from their lines. |
 | Deployment | When real deployment topology is readable from IaC/config (compose, k8s, Terraform, systemd). Show placement, not routing. |
 
 c4model.com states that not every level is required; system context and container diagrams
 are enough for most teams. Prefer three clear diagrams over seven padded ones.
+
+C4's own level 4 is optional and, like the views below, is drawn with ordinary UML notation
+rather than C4 syntax. Beyond that, behaviour and data views are **not** part of the C4
+model at all: C4 stops at components, so call ordering, object methods, lifecycles and
+cross-boundary paths have no C4 home. Add one of these **on demand**: only when the
+repository's own design docs raise a question the structure views cannot answer, and only
+for a question the code or design actually argues about. Record the reason in the README.
+Do not generate the whole list by default.
+
+| View | When to produce it | File name |
+| --- | --- | --- |
+| Dynamic | A runtime flow (sign-in, order, activation, ingestion) must be explained as an ordered interaction. Use a Mermaid `sequenceDiagram` with `autonumber`; put each space or deployment boundary in a `box` so the reader can see where a step happens. Never `C4Dynamic`: it produces crossing arrows and drifts labels far from their lines. | `05-dynamic-<flow>.mmd` |
+| Code (L4) | One component's implementation is the subject: the object model, its methods and its ownership rules. Use a Mermaid `classDiagram`. This is the only view that can state methods, and the one most likely to drift from the code - regenerate it when the interface changes. | `04-code-<subject>.mmd` |
+| State | An object, process or connection has a lifecycle whose branches a reader must not miss (worker start and exit, device activation and offline, event state). Use `stateDiagram-v2`. Lifecycle guarantees that are otherwise one sentence in prose belong here. | `07-state-<subject>.mmd` |
+| Flow | The question is *where* a step happens rather than *when*: which space, process or boundary, and where the decisions sit. Use a `flowchart` with one subgraph per space. Keep it one-directional - a back edge scrambles the lane order, so reply paths belong in the dynamic view. | `08-flow-<flow>.mmd` |
+| Object | One concrete instance is the subject: default objects, mirrors, what is currently queued or waiting. Use a `flowchart` of instance boxes (`d0 : Device`), or a `classDiagram` when types and instances must sit together. | `10-object-<subject>.mmd` |
 
 ## Extraction in codebase mode
 
@@ -212,9 +228,20 @@ what the code cannot answer (SLOs, team ownership, cost, non-functional requirem
 ## Authoring rules
 
 - Write all diagram text in English, Latin characters only; non-ASCII text renders as missing glyphs.
-- Use native Mermaid C4 syntax (`C4Context`, `C4Container`, `C4Component`, `C4Dynamic`, `C4Deployment`) as the first choice.
-- Fall back to the C4-styled `flowchart` template in [references/flowchart-fallback.md](references/flowchart-fallback.md) only when native syntax fails or cannot express the layout. Add a `<!-- fallback: <reason> -->` note at the top of the `.mmd` file so the deviation is auditable.
-- Name files `00-system-landscape.mmd`, `01-system-context.mmd`, `02-container.mmd`, `03-component-<container>.mmd`, `04-code-<component>.mmd`, `05-dynamic-<flow>.mmd`, `06-deployment.mmd`.
+- Use native Mermaid C4 syntax (`C4Context`, `C4Container`, `C4Component`, `C4Deployment`) for every structure view, and the interaction view types in [references/interaction-views.md](references/interaction-views.md) for behaviour, code, state and flow. Those are deliberate view choices, not fallbacks.
+- Fall back to the C4-styled `flowchart` template in [references/flowchart-fallback.md](references/flowchart-fallback.md) only when native C4 syntax fails or cannot express a structure diagram. Record the deviation at the top of the `.mmd` file (`%% fallback: <reason>`) so it stays auditable.
+- Non-C4 views carry a title that renders, as leading YAML front matter:
+
+  ```text
+  ---
+  title: <diagram type> for <subject>
+  ---
+  %% fallback: <why this view type, not C4>
+  ```
+
+  The validator accepts that front matter or a `%% title:` comment; the front matter is
+  preferred because it also captions the image.
+- Name files `NN-<type>-<subject>.mmd`, `NN` being the reading order and `<type>` one of `system-landscape`, `system-context`, `container`, `component`, `code`, `dynamic`, `deployment`, `state`, `flow`, `object`: `00-system-landscape.mmd`, `01-system-context.mmd`, `02-container[-<side>].mmd`, `03-component-<container>.mmd`, `04-code-<subject>.mmd`, `05-dynamic-<flow>.mmd`, `06-deployment.mmd`, `07-state-<subject>.mmd`, `08-flow-<flow>.mmd`, `10-object-<subject>.mmd`. Several files may share a prefix (`05-dynamic-business-request` and `05-dynamic-device-activation`); never renumber a file that already exists.
 - Use short lowerCamel aliases (`bankingSystem`, `webApp`) that stay stable across regenerations; never renumber aliases that already exist. Aliases come from the main agent's spec, not from the subagent.
 - Give every element a short description and every relationship a verb plus technology where known (`Reads/writes`, `JDBC`).
 - Keep each diagram between roughly 3 and 12 concrete elements; split anything larger into a second diagram or a lower level.
@@ -274,6 +301,19 @@ layout tweaks.
    blocks covering words and cannot be verified reliably. Move the label instead.
 12. **Export at scale 2.** Text lands at 24-32px in the PNG; `--width` overrides the scale and
     is only for diagrams viewed fit-to-width.
+
+Budgets are per view type, and the checks do not all apply everywhere:
+
+- `check_arrows.py` pairs C4 `Rel` statements with their connectors, so it runs on structure
+  views only; it reports "no C4 relationships" and passes for sequence, class, state, flow
+  and object views.
+- `check_layout.py` runs on every render: it measures text against text and text against
+  shape for all six view types, including the `em`-based text that flow, class and state
+  diagrams emit.
+- A class diagram carries methods as well as relations, so its relation budget is larger
+  than a C4 native diagram's - but a relation label must still not land on a cardinality.
+- A state diagram should have every state reachable and no silent dead end except the final
+  state; a swimlane must stay one-directional.
 
 ### Fix playbook
 
@@ -430,6 +470,7 @@ Mermaid C4 renderer.
 
 - [references/c4-model.md](references/c4-model.md) - abstractions, diagram types, notation, and the review checklist.
 - [references/mermaid-c4-syntax.md](references/mermaid-c4-syntax.md) - keywords, escaping rules, working examples, failure modes.
+- [references/interaction-views.md](references/interaction-views.md) - templates and rules for the on-demand views: sequence with boxes, class, state, swimlane flow and object diagrams.
 - [references/flowchart-fallback.md](references/flowchart-fallback.md) - C4-styled flowchart templates for unsupported cases.
 - [assets/c4-doc-template.md](assets/c4-doc-template.md) - template for the generated `docs/c4/README.md`.
 - `scripts/validate_c4.py`, `scripts/render_c4.py` - validation and rendering.
