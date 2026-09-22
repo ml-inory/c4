@@ -92,7 +92,7 @@ Rel(sourceAlias, targetAlias, "Label", "Technology")
 | `Rel(a, b, "label", "tech")` | Unidirectional relationship from a to b. |
 | `BiRel(a, b, ...)` | Bidirectional relationship. |
 | `Rel_Back(a, b, ...)` | Relationship drawn in the reverse direction. |
-| `Rel_Up`, `Rel_Down`, `Rel_Left`, `Rel_Right` | Relationship with a directional hint. |
+| `Rel_Up`, `Rel_Down`, `Rel_Left`, `Rel_Right` | Relationship with a directional hint. Use one when two relationships would otherwise leave a shape on the same side and cross. |
 
 ## Style and layout directives
 
@@ -203,6 +203,20 @@ mermaidx -i docs/c4/diagrams/02-container.mmd -o docs/c4/png/02-container.png --
   uses 50) and fix the residual collisions with `scripts/fit_labels.py` instead of
   inflating the margins - large margins make the canvas several times taller, which
   makes the text look tiny when the image is scaled to fit a page.
+- Never let `fit_labels.py` become the way you solve a crowded diagram. Its budget is
+  capped (`--max-shift`, 24px in the documented workflow) because a label that travels
+  further stops reading as part of its own connector. When it reports labels still
+  colliding, the diagram has too many relationships: cut one, split the view, or move
+  the relationship to a supporting view.
+- Run `scripts/check_arrows.py` after `fit_labels.py`. It pairs each relationship with
+  its drawn connector and fails a label that ended up closer to another arrow
+  (`label-foreign`), a label that drifted off its own (`label-detached`), and diagrams
+  with too many crossings or arrows converging on one element (`edge-crossings`,
+  `fan-in`).
+- Two relationships between the same pair of shapes, and two elements that share a name
+  (`ax_comm.ko` on the host and on the device), both make the diagram hard to read and
+  the checkers harder to trust: give the elements distinguishing descriptions and keep
+  labels unique.
 
 ### C4 layout configuration
 

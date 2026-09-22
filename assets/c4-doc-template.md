@@ -22,6 +22,19 @@ diagrams are regenerated with `python3 <skill-dir>/scripts/render_c4.py --src do
 | System context (L1) | <audience and question answered> | [diagrams/01-system-context.mmd](diagrams/01-system-context.mmd) | [PNG](png/01-system-context.png) / [SVG](svg/01-system-context.svg) |
 | Container (L2) | <audience and question answered> | [diagrams/02-container.mmd](diagrams/02-container.mmd) | [PNG](png/02-container.png) / [SVG](svg/02-container.svg) |
 
+## Diagram review record
+
+<!--
+The main agent's own acceptance evidence, one row per diagram. Copy the values from
+the acceptance records written during review; do not paste a subagent's claim. A
+diagram the main agent did not open and re-check is not "accepted".
+-->
+
+| Diagram | Checkers (main agent re-run) | Visual pass (main agent, from the PNG) | Verdict |
+| --- | --- | --- | --- |
+| 01-system-context | check_arrows clean; check_layout clean | every arrow traceable; no shared path; every label on its own arrow | accepted |
+| 02-container | check_arrows clean; check_layout clean | <or the defect that blocked it> | accepted / rejected / deferred |
+
 ## Legend
 
 | Notation | Meaning |
@@ -98,6 +111,9 @@ regenerating diagrams.
 - [ ] Every element has a name, type, and short description.
 - [ ] Every container and component states its technology.
 - [ ] Every relationship is labelled with intent and, where relevant, protocol.
+- [ ] No two arrows share a drawn path, run as a tight bundle, or land on the same point.
+- [ ] No arrow runs underneath an element box, and every label is on its own arrow.
+- [ ] The main agent has opened every render and recorded a verdict in the review record above.
 - [ ] Acronyms are expanded, and colour/shape meanings are documented.
 - [ ] Assumptions and open questions above have been reviewed by a system owner.
 

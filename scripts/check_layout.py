@@ -74,16 +74,42 @@ class Run:
         }
 
 
-def text_runs(node, font, ox: float, oy: float, size: float, anchor: str, out: List[Run]) -> None:
-    """Collect text runs, without descending into child groups."""
+def text_runs(
+    node,
+    font,
+    ox: float,
+    oy: float,
+    size: float,
+    anchor: str,
+    out: List[Run],
+    inherited_x: Optional[float] = None,
+    inherited_y: Optional[float] = None,
+) -> None:
+    """Collect text runs, without descending into child groups.
+
+    Mermaid writes a wrapped label as one <text> per visual line, all sharing the
+    same x/y, with the line offset carried by the tspan's dy. Tspans therefore
+    inherit the parent position and add their own dy; without that, every
+    two-line label looks like two runs printed on top of each other.
+    """
     dx, dy = parse_translate(node)
     ox, oy = ox + dx, oy + dy
     size = number(style_value(node, "font-size")) or number(node.get("font-size")) or size
     anchor = style_value(node, "text-anchor") or node.get("text-anchor") or anchor
     tag = node.tag.replace(NS, "")
-    if tag in ("text", "tspan"):
-        x = number(node.get("x"))
-        y = number(node.get("y"))
+    x = number(node.get("x"))
+    y = number(node.get("y"))
+    if x is None:
+        x = inherited_x
+    if y is None:
+        y = inherited_y
+    dy_attr = number(node.get("dy"))
+    if tag == "tspan" and dy_attr is not None and y is not None:
+        y = y + dy_attr
+    has_text_child = any(
+        child.tag.replace(NS, "") == "tspan" and "".join(child.itertext()).strip() for child in node
+    )
+    if tag in ("text", "tspan") and not has_text_child:
         content = "".join(node.itertext()).strip()
         if content and x is not None and y is not None:
             width = number(node.get("textLength"))
@@ -94,7 +120,7 @@ def text_runs(node, font, ox: float, oy: float, size: float, anchor: str, out: L
             out.append(Run(content, ox + x0, ox + x0 + width, oy + y, size))
     for child in node:
         if child.tag.replace(NS, "") != "g":
-            text_runs(child, font, ox, oy, size, anchor, out)
+            text_runs(child, font, ox, oy, size, anchor, out, x, y)
 
 
 class Checker:
